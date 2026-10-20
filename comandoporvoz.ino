@@ -109,7 +109,7 @@ void iniciar_i2s() {
   const i2s_pin_config_t pin_config = {
     .bck_io_num = I2S_PIN_BCLK,
     .ws_io_num = I2S_PIN_WS,
-    .data_out_num = I2S_PIN_NO_INTERFACE,
+    .data_out_num = -1, // Sin salida (solo micrófono)
     .data_in_num = I2S_PIN_DIN
   };
 
