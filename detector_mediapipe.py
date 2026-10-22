@@ -15,11 +15,18 @@ Este script implementa todas las capacidades de detección de MediaPipe con Open
   6. MODO SEGMENTACION: Desenfoque de fondo en tiempo real (Virtual Blur).
 
 Controles de teclado:
-  [1] a [6] : Cambiar de modo
+  [1] a [6] : Cambiar de modo (Holistic, Dedos, Pose, FaceMesh, Detección, Segmentación)
+  [C]       : Cambiar de cámara (Laptop <-> USB) en caliente
   [M]       : Activar/desactivar efecto espejo
   [H]       : Mostrar/ocultar interfaz gráfica (HUD)
   [S]       : Guardar captura de pantalla (foto)
   [Q] o ESC : Salir
+
+Uso por consola:
+  python detector_mediapipe.py           -> Menú de selección interactivo
+  python detector_mediapipe.py 1         -> Usa la cámara 1 (USB) directamente
+  python detector_mediapipe.py 0         -> Usa la cámara 0 (Laptop) directamente
+  python detector_mediapipe.py --cam 1   -> Usa la cámara 1 (USB)
 =============================================================================
 """
 
@@ -613,15 +620,15 @@ class MediaPipeMultimodalApp:
         fps_text = f"FPS: {int(fps)}"
         cv2.putText(frame, fps_text, (w - 130, 36),
                     cv2.FONT_HERSHEY_DUPLEX, 0.65, (0, 255, 120), 2)
-        espejo_text = "ESPEJO: ON" if self.es_espejo else "ESPEJO: OFF"
-        cv2.putText(frame, espejo_text, (w - 145, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (200, 200, 200), 1)
+        info_cam = f"CAM: {self.camera_idx} [C] | ESPEJO: {'ON' if self.es_espejo else 'OFF'} [M]"
+        cv2.putText(frame, info_cam, (w - 300, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, (200, 200, 200), 1)
 
         # 4. Barra de Ayuda / Atajos de Teclado en la parte inferior izquierda
-        dibujar_rect_redondeado_translucido(frame, (10, h - 85), (580, h - 10), (10, 10, 20), alpha=0.75)
+        dibujar_rect_redondeado_translucido(frame, (10, h - 85), (640, h - 10), (10, 10, 20), alpha=0.75)
         cv2.putText(frame, "TECLAS: [1] Holistic | [2] Dedos Pro | [3] Pose | [4] Rostro | [5] Cajas | [6] Blur",
-                    (20, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1)
-        cv2.putText(frame, "[M] Alternar Espejo  |  [H] Ocultar HUD  |  [S] Tomar Foto  |  [Q/ESC] Salir",
+                    (20, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 255), 1)
+        cv2.putText(frame, "[C] Cambiar Cam  |  [M] Espejo  |  [H] HUD  |  [S] Foto  |  [Q/ESC] Salir",
                     (20, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 220, 220), 1)
 
     # -------------------------------------------------------------------------
@@ -702,6 +709,27 @@ class MediaPipeMultimodalApp:
                 elif key == ord('m') or key == ord('M'):
                     self.es_espejo = not self.es_espejo
                     print(f"[CONFIG] Modo espejo: {'Activado' if self.es_espejo else 'Desactivado'}")
+                elif (key == ord('c') or key == ord('C')) and not self.video_path:
+                    # Alternar entre cámara 0 y cámara 1 en caliente
+                    nuevo_indice = 1 if self.camera_idx == 0 else 0
+                    print(f"\n[CAMBIO DE CÁMARA] Intentando conectar a Cámara {nuevo_indice}...")
+                    cap.release()
+                    nueva_cap = cv2.VideoCapture(nuevo_indice, cv2.CAP_DSHOW)
+                    if not nueva_cap.isOpened():
+                        nueva_cap = cv2.VideoCapture(nuevo_indice)
+                    if nueva_cap.isOpened():
+                        cap = nueva_cap
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                        self.camera_idx = nuevo_indice
+                        print(f"[OK] Cámara {self.camera_idx} conectada con éxito.")
+                    else:
+                        print(f"[AVISO] No se pudo abrir Cámara {nuevo_indice}. Reabriendo Cámara {self.camera_idx}...")
+                        cap = cv2.VideoCapture(self.camera_idx, cv2.CAP_DSHOW)
+                        if not cap.isOpened():
+                            cap = cv2.VideoCapture(self.camera_idx)
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                 elif key == ord('h') or key == ord('H'):
                     self.mostrar_hud = not self.mostrar_hud
                 elif key == ord('s') or key == ord('S'):
@@ -723,16 +751,72 @@ class MediaPipeMultimodalApp:
             print("[INFO] Recursos de camara y MediaPipe liberados correctamente.")
 
 # =============================================================================
-# PUNTO DE ENTRADA CLI
+# PUNTO DE ENTRADA CLI Y DETECCIÓN DE CÁMARAS
 # =============================================================================
+
+def obtener_indice_camara():
+    """Detecta las cámaras disponibles y permite seleccionar la cámara USB o integrada."""
+    print("\n" + "=" * 55)
+    print("      CONFIGURACIÓN Y SELECCIÓN DE CÁMARA")
+    print("=" * 55)
+    print(" Escaneando puertos de video disponibles...")
+
+    camaras_activas = []
+    for i in range(3):
+        test_cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        if not test_cap.isOpened():
+            test_cap = cv2.VideoCapture(i)
+        if test_cap.isOpened():
+            ret, _ = test_cap.read()
+            if ret:
+                camaras_activas.append(i)
+            test_cap.release()
+
+    if not camaras_activas:
+        camaras_activas = [0]
+
+    print(" Cámaras detectadas:")
+    for c in camaras_activas:
+        tipo = "Cámara Integrada (Laptop)" if c == 0 else f"Cámara Externa / USB ({c})"
+        print(f"   [{c}] -> {tipo}")
+
+    sugerida = 1 if 1 in camaras_activas else 0
+    print("-" * 55)
+    print(" Opciones de inicio:")
+    print("   [0]     -> Cámara Integrada de la Laptop")
+    print("   [1]     -> Cámara Externa USB (Recomendada)")
+    print(f"   [Enter] -> Usar automáticamente Cámara {sugerida}")
+    print("=" * 55)
+
+    try:
+        entrada = input(f"Selecciona la cámara [0 o 1, Enter para Cámara {sugerida}]: ").strip()
+        if entrada == "":
+            return sugerida
+        return int(entrada)
+    except Exception:
+        return sugerida
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Detector Multimodal MediaPipe con Conteo de Dedos y Gestos")
-    parser.add_argument("--camera", type=int, default=0, help="Indice de camara web (por defecto 0)")
-    parser.add_argument("--video", type=str, default=None, help="Ruta a archivo de video para procesar en vez de camara")
-    parser.add_argument("--width", type=int, default=1280, help="Ancho de resolucion de captura (def: 1280)")
-    parser.add_argument("--height", type=int, default=720, help="Alto de resolucion de captura (def: 720)")
-    return parser.parse_args()
+    parser.add_argument("cam_posicional", nargs="?", type=int, default=None, help="Índice de cámara (0=Integrada, 1=USB...)")
+    parser.add_argument("-c", "--camera", "--cam", type=int, default=None, dest="camera", help="Índice de cámara web")
+    parser.add_argument("--video", type=str, default=None, help="Ruta a archivo de video para procesar en vez de cámara")
+    parser.add_argument("--width", type=int, default=1280, help="Ancho de resolución de captura (def: 1280)")
+    parser.add_argument("--height", type=int, default=720, help="Alto de resolución de captura (def: 720)")
+    args, _ = parser.parse_known_args()
+
+    # Si se especificó un video de prueba, no interactuamos por cámara
+    if args.video:
+        args.camera = 0
+        return args
+
+    idx = args.cam_posicional if args.cam_posicional is not None else args.camera
+    if idx is not None:
+        args.camera = idx
+    else:
+        args.camera = obtener_indice_camara()
+
+    return args
 
 if __name__ == "__main__":
     args = parse_args()
