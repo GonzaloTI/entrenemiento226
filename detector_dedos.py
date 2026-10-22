@@ -18,15 +18,23 @@ Script especializado y enfocado en la detección de dedos y manos:
   - Muestra coordenadas en tiempo real de las puntas de los dedos.
 
 Controles:
+  [C]       : Cambiar de cámara (Laptop <-> USB) en caliente
   [M]       : Alternar vista espejo (Mirror)
   [S]       : Guardar foto / captura de pantalla
   [Q] o ESC : Salir
+
+Uso por consola:
+  python detector_dedos.py           -> Menú interactivo automático
+  python detector_dedos.py 1         -> Usa la cámara 1 (USB) directamente
+  python detector_dedos.py --cam 0   -> Usa la cámara 0 (Integrada)
 =============================================================================
 """
 
 import os
+import sys
 import time
 import math
+import argparse
 import numpy as np
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -149,13 +157,70 @@ def clasificar_dedos(puntos_px, mano_label, es_espejo=True):
 
     return estados, conteo, gesto, pinch_activo, dist_pinch
 
+def obtener_indice_camara():
+    """Detecta las cámaras disponibles y permite seleccionar la cámara USB o integrada."""
+    parser = argparse.ArgumentParser(description="Detector de Dedos y Gestos con MediaPipe")
+    parser.add_argument("cam_posicional", nargs="?", type=int, default=None, help="Índice de cámara (0=Integrada, 1=USB...)")
+    parser.add_argument("-c", "--camera", "--cam", type=int, default=None, dest="cam_flag", help="Índice de cámara web")
+    args, _ = parser.parse_known_args()
+
+    indice = args.cam_posicional if args.cam_posicional is not None else args.cam_flag
+    if indice is not None:
+        print(f"\n>> Cámara seleccionada por argumento: Cámara {indice}")
+        return indice
+
+    print("\n" + "=" * 55)
+    print("      CONFIGURACIÓN Y SELECCIÓN DE CÁMARA")
+    print("=" * 55)
+    print(" Escaneando puertos de video disponibles...")
+
+    # Búsqueda rápida de cámaras conectadas (0, 1, 2)
+    camaras_activas = []
+    for i in range(3):
+        test_cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        if not test_cap.isOpened():
+            test_cap = cv2.VideoCapture(i)
+        if test_cap.isOpened():
+            ret, _ = test_cap.read()
+            if ret:
+                camaras_activas.append(i)
+            test_cap.release()
+
+    if not camaras_activas:
+        camaras_activas = [0]
+
+    print(" Cámaras detectadas:")
+    for c in camaras_activas:
+        tipo = "Cámara Integrada (Laptop)" if c == 0 else f"Cámara Externa / USB ({c})"
+        print(f"   [{c}] -> {tipo}")
+
+    # Si hay cámara 1 activa, la sugerida por defecto es la 1 (USB)
+    sugerida = 1 if 1 in camaras_activas else 0
+    print("-" * 55)
+    print(" Opciones de inicio:")
+    print("   [0]     -> Cámara Integrada de la Laptop")
+    print("   [1]     -> Cámara Externa USB (Recomendada)")
+    print(f"   [Enter] -> Usar automáticamente Cámara {sugerida}")
+    print("=" * 55)
+
+    try:
+        entrada = input(f"Selecciona la cámara [0 o 1, Enter para Cámara {sugerida}]: ").strip()
+        if entrada == "":
+            return sugerida
+        return int(entrada)
+    except Exception:
+        return sugerida
+
 def main():
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    indice_cam = obtener_indice_camara()
+    print(f"\n[INICIANDO] Conectando a Cámara {indice_cam}...")
+
+    cap = cv2.VideoCapture(indice_cam, cv2.CAP_DSHOW)
     if not cap.isOpened():
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(indice_cam)
 
     if not cap.isOpened():
-        print("[ERROR] No se pudo abrir la camara web.")
+        print(f"[ERROR] No se pudo abrir la cámara {indice_cam}.")
         return
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -176,7 +241,8 @@ def main():
     fps = 30.0
 
     print("\n" + "=" * 55)
-    print(" DETECTOR DE DEDOS Y GESTOS EN TIEMPO REAL INICIADO")
+    print(f" DETECTOR DE DEDOS Y GESTOS INICIADO (CÁMARA {indice_cam})")
+    print(" Presiona [C] para cambiar de cámara (Laptop <-> USB)")
     print(" Presiona [M] para alternar espejo, [S] para guardar foto")
     print(" Presiona [Q] o [ESC] para salir")
     print("=" * 55 + "\n")
@@ -210,8 +276,8 @@ def main():
         cv2.rectangle(frame, (10, 10), (w - 10, 70), (0, 255, 200), 1)
         cv2.putText(frame, "DETECTOR DE DEDOS Y GESTOS - MEDIAPIPE", (25, 38),
                     cv2.FONT_HERSHEY_DUPLEX, 0.65, (0, 255, 200), 2)
-        cv2.putText(frame, f"FPS: {int(fps)} | Espejo: {'ON' if es_espejo else 'OFF'}", (w - 220, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+        cv2.putText(frame, f"FPS: {int(fps)} | Cam: {indice_cam} [C] | Espejo: {'ON' if es_espejo else 'OFF'} [M]", (w - 410, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
 
         panel_y = 90
         if results.multi_hand_landmarks and results.multi_handedness:
@@ -279,6 +345,27 @@ def main():
             break
         elif key == ord('m') or key == ord('M'):
             es_espejo = not es_espejo
+        elif key == ord('c') or key == ord('C'):
+            # Alternar entre cámara 0 y cámara 1 en caliente
+            nuevo_indice = 1 if indice_cam == 0 else 0
+            print(f"\n[CAMBIO DE CÁMARA] Intentando conectar a Cámara {nuevo_indice}...")
+            cap.release()
+            nueva_cap = cv2.VideoCapture(nuevo_indice, cv2.CAP_DSHOW)
+            if not nueva_cap.isOpened():
+                nueva_cap = cv2.VideoCapture(nuevo_indice)
+            if nueva_cap.isOpened():
+                cap = nueva_cap
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                indice_cam = nuevo_indice
+                print(f"[OK] Cámara {indice_cam} conectada con éxito.")
+            else:
+                print(f"[AVISO] No se pudo abrir Cámara {nuevo_indice}. Reabriendo Cámara {indice_cam}...")
+                cap = cv2.VideoCapture(indice_cam, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(indice_cam)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         elif key == ord('s') or key == ord('S'):
             nombre = f"captura_dedos_{int(time.time())}.jpg"
             cv2.imwrite(nombre, frame)

@@ -277,6 +277,9 @@ Durante la ejecución en vivo puedes presionar:
   ┌───────────┬─────────────────────────────────────────────────────────────────┐
   │ TECLA     │ ACCIÓN                                                          │
   ├───────────┼─────────────────────────────────────────────────────────────────┤
+  │ [C]       │ Cambia de cámara en caliente (alterna entre cámara 0 y cámara 1)│
+  │           │ sin necesidad de reiniciar el programa.                         │
+  ├───────────┼─────────────────────────────────────────────────────────────────┤
   │ [M]       │ Alterna el Modo Espejo (Mirror On/Off con cv2.flip horizontal). │
   │           │ Facilita que tu mano izquierda coincida con el lado izquierdo.  │
   ├───────────┼─────────────────────────────────────────────────────────────────┤
@@ -288,16 +291,18 @@ Durante la ejecución en vivo puedes presionar:
   └───────────┴─────────────────────────────────────────────────────────────────┘
 ```
 
-```python
-key = cv2.waitKey(1) & 0xFF
-if key == ord('q') or key == ord('Q') or key == 27:
-    break
-elif key == ord('m') or key == ord('M'):
-    es_espejo = not es_espejo
-elif key == ord('s') or key == ord('S'):
-    nombre = f"captura_dedos_{int(time.time())}.jpg"
-    cv2.imwrite(nombre, frame)
-    print(f"[OK] Captura guardada como '{nombre}'")
+### Opciones de Ejecución por Consola:
+```bash
+# 1. Menú interactivo automático (detecta si hay cámara USB conectada):
+python detector_dedos.py
+
+# 2. Abrir directamente la cámara USB externa (índice 1):
+python detector_dedos.py 1
+# o también:
+python detector_dedos.py --camera 1
+
+# 3. Abrir directamente la cámara integrada de la laptop (índice 0):
+python detector_dedos.py 0
 ```
 
 ---
