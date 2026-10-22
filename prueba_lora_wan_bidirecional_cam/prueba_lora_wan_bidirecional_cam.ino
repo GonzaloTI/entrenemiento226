@@ -53,7 +53,7 @@
 
 // Pines de los dos canales del LED RGB a controlar
 #define PIN_LED1          21  // Canal R (Rojo) del LED RGB
-#define PIN_LED2          41  // Canal G (Verde) del LED RGB
+#define PIN_LED2          47  // Canal G (Verde) del LED RGB
 
 // ======================================================================================
 // CONFIGURACIÓN DE POLARIDAD: LED RGB ÁNODO COMÚN (Pata larga a 3.3V)
