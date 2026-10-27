@@ -4,6 +4,7 @@
 =============================================================================
 - Compatible con Cámara Integrada (Laptop) y Cámara Externa USB.
 - Detección automática y cambio en caliente con la tecla [C].
+- Flexión profunda y completa de todo el dedo (Nudillo base, medio y punta).
 - Carga el modelo 3D realista exportado de Blender ('assets/mano_robotica.glb').
 - Conecta cada una de las 15 articulaciones óseas con la cinemática de MediaPipe.
 - Render 3D a 60+ FPS sin retrasos gracias al hilo de captura independiente.
@@ -121,7 +122,7 @@ class ManoVirtualBlender:
         except Exception as e:
             print(f"[ERROR] No se pudo cargar el Actor de Blender: {e}")
 
-    def actualizar(self, angulos, factor_suavizado=0.28):
+    def actualizar(self, angulos, factor_suavizado=0.35):
         if not angulos or not self.actor:
             return
 
@@ -131,7 +132,7 @@ class ManoVirtualBlender:
         self.rot_suavizada_palma += (t_rot - self.rot_suavizada_palma) * factor_suavizado
         self.raiz.rotation = self.rot_suavizada_palma
 
-        # 2. Flexión de dedos índice a meñique
+        # 2. Flexión profunda de todo el dedo (Nudillo base, articulación media y distal)
         dedos_data = angulos["dedos"]
         for dedo in ["indice", "medio", "anular", "menique"]:
             if dedo not in dedos_data or dedo not in self.joints:
@@ -149,9 +150,10 @@ class ManoVirtualBlender:
 
                 j = self.joints[dedo][i]
                 base_hpr = self.rest_hpr[dedo][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.85, base_hpr[2])
+                # Aplicar flexión completa con ganancia 1.0 para que se cierre el puño por completo
+                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 1.0, base_hpr[2])
 
-        # 3. Flexión de pulgar
+        # 3. Flexión anatómica del pulgar (Base hacia la palma y punta doblada)
         if "pulgar" in dedos_data and "pulgar" in self.joints:
             p_data = dedos_data["pulgar"]
             p_targets = [p_data["base"], p_data["medio"], p_data["punta"]]
@@ -162,7 +164,7 @@ class ManoVirtualBlender:
 
                 j = self.joints["pulgar"][i]
                 base_hpr = self.rest_hpr["pulgar"][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.6, base_hpr[2] - nuevo * 0.35)
+                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.85, base_hpr[2] - nuevo * 0.45)
 
 # --- INICIAR MODELO Y DETECTOR ---
 mano_3d = ManoVirtualBlender(RUTA_GLB)
