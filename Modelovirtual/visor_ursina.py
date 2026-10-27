@@ -3,7 +3,7 @@
   VISOR 3D INDEPENDIENTE EN TIEMPO REAL (URSINA + BLENDER RIG + MEDIAPIPE)
 =============================================================================
 - Compatible con Cámara Integrada (Laptop) y Cámara Externa USB.
-- Detección automática y cambio en caliente con la tecla [C].
+- Soporte para calibración personalizada 'calibracion_mano.json'.
 - Carga el modelo 3D realista exportado de Blender ('assets/mano_robotica.glb').
 - Conecta cada una de las 15 articulaciones óseas con la cinemática de MediaPipe.
 - Render 3D a 60+ FPS sin retrasos gracias al hilo de captura independiente.
@@ -121,7 +121,7 @@ class ManoVirtualBlender:
         except Exception as e:
             print(f"[ERROR] No se pudo cargar el Actor de Blender: {e}")
 
-    def actualizar(self, angulos, factor_suavizado=0.28):
+    def actualizar(self, angulos, factor_suavizado=0.30):
         if not angulos or not self.actor:
             return
 
@@ -149,7 +149,7 @@ class ManoVirtualBlender:
 
                 j = self.joints[dedo][i]
                 base_hpr = self.rest_hpr[dedo][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.85, base_hpr[2])
+                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.88, base_hpr[2])
 
         # 3. Flexión de pulgar
         if "pulgar" in dedos_data and "pulgar" in self.joints:
@@ -162,7 +162,7 @@ class ManoVirtualBlender:
 
                 j = self.joints["pulgar"][i]
                 base_hpr = self.rest_hpr["pulgar"][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.6, base_hpr[2] - nuevo * 0.35)
+                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.75, base_hpr[2] - nuevo * 0.40)
 
 # --- INICIAR MODELO Y DETECTOR ---
 mano_3d = ManoVirtualBlender(RUTA_GLB)
@@ -178,24 +178,25 @@ txt_titulo = Text(
     color=color.rgb(0, 255, 200)
 )
 txt_sub = Text(
-    text="[Mouse Der]: Orbitar | [Rueda]: Zoom | [ESPACIO]: Centrar | [C]: Cambiar Cam (USB/Laptop) | [M]: Espejo | [ESC]: Salir",
+    text="[Mouse Der]: Orbitar | [Rueda]: Zoom | [ESPACIO]: Centrar | [C]: Cambiar Cam | [M]: Espejo | [ESC]: Salir",
     position=(-0.85, 0.435),
     scale=0.72,
     color=color.rgb(160, 170, 185)
 )
 
 # Tarjeta lateral de estado
-panel_gesto = Entity(parent=camera.ui, model='quad', scale=(0.46, 0.42), position=(0.66, 0.20), color=color.rgb(24, 27, 35))
-txt_cam_activa = Text(text="CAM: INICIANDO...", position=(0.45, 0.38), scale=0.85, color=color.rgb(0, 220, 255))
-txt_mano_label = Text(text="MANO: ESPERANDO...", position=(0.45, 0.33), scale=0.95, color=color.rgb(255, 200, 50))
-txt_gesto = Text(text="GESTO: BUSCANDO", position=(0.45, 0.28), scale=0.90, color=color.rgb(0, 255, 220))
-txt_fps = Text(text="FPS Cam: -- | 3D: 60", position=(0.45, 0.23), scale=0.75, color=color.rgb(180, 190, 200))
+panel_gesto = Entity(parent=camera.ui, model='quad', scale=(0.48, 0.44), position=(0.65, 0.20), color=color.rgb(24, 27, 35))
+txt_cam_activa = Text(text="CAM: INICIANDO...", position=(0.43, 0.38), scale=0.82, color=color.rgb(0, 220, 255))
+txt_calib_status = Text(text="CALIB: DETECTANDO...", position=(0.43, 0.34), scale=0.75, color=color.rgb(255, 200, 100))
+txt_mano_label = Text(text="MANO: ESPERANDO...", position=(0.43, 0.30), scale=0.92, color=color.rgb(255, 200, 50))
+txt_gesto = Text(text="GESTO: BUSCANDO", position=(0.43, 0.25), scale=0.88, color=color.rgb(0, 255, 220))
+txt_fps = Text(text="FPS Cam: -- | 3D: 60", position=(0.43, 0.21), scale=0.75, color=color.rgb(180, 190, 200))
 
 # Indicadores de los 5 dedos
 nombres_dedos = ["Pulgar", "Indice", "Medio", "Anular", "Menique"]
 txt_dedos = []
 for idx, nom in enumerate(nombres_dedos):
-    t = Text(text=f"  {nom}: [ - ]", position=(0.45, 0.17 - idx * 0.035), scale=0.78, color=color.rgb(150, 160, 175))
+    t = Text(text=f"  {nom}: [ - ]", position=(0.43, 0.16 - idx * 0.033), scale=0.76, color=color.rgb(150, 160, 175))
     txt_dedos.append(t)
 
 # --- BUCLE PRINCIPAL URSINA (60+ FPS) ---
@@ -205,6 +206,14 @@ def update():
 
     if datos["detectada"] and datos["angulos"]:
         mano_3d.actualizar(datos["angulos"])
+
+        es_calib = datos["angulos"].get("calibrado", False)
+        if es_calib:
+            txt_calib_status.text = "CALIB: [ACTIVA (calibracion_mano.json)]"
+            txt_calib_status.color = color.rgb(0, 255, 120)
+        else:
+            txt_calib_status.text = "CALIB: [ESTANDAR (Sin calibrar)]"
+            txt_calib_status.color = color.rgb(255, 180, 80)
 
         mano_str = "DERECHA" if datos["etiqueta"] == "Right" else "IZQUIERDA"
         txt_mano_label.text = f"MANO {mano_str} DETECTADA"
