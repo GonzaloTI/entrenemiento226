@@ -1,10 +1,12 @@
 """
 =============================================================================
-  DETECTOR DE MANOS CON CAPTURA EN HILO SEPARADO (THREAD-SAFE)
+  DETECTOR DE MANOS CON GESTIÓN ROBUSTA DE CÁMARAS (USB E INTEGRADA)
 =============================================================================
-- Corre captura de cámara y MediaPipe en un hilo en segundo plano (30 FPS).
-- Extrae coordenadas 3D, ángulos de articulación y clasificación de gestos.
-- Provee un método 'obtener_datos()' seguro para alimentar al visor 3D a 60+ FPS.
+- Compatible con Cámara Integrada (0) y Cámara Externa USB (1).
+- Cambio dinámico en caliente con la tecla [C].
+- Detección segura: Si una cámara no responde, no crashea ni se queda en negro,
+  mantiene la cámara activa automáticamente.
+- Modos de captura DirectShow y nativo para Windows.
 =============================================================================
 """
 
@@ -34,17 +36,39 @@ NOMBRES_DEDOS = ["Pulgar", "Indice", "Medio", "Anular", "Menique"]
 def distancia_euclidiana(p1, p2):
     return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
 
+def probar_camara(idx):
+    """Verifica si un índice de cámara realmente entrega fotogramas."""
+    for backend in [cv2.CAP_DSHOW, cv2.CAP_ANY]:
+        cap = cv2.VideoCapture(idx, backend)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None and frame.size > 0:
+                return True
+    return False
+
+def abrir_dispositivo_camara(idx, ancho=1280, alto=720):
+    """Abre la cámara con respaldo de backends seguros para Windows."""
+    for backend in [cv2.CAP_DSHOW, cv2.CAP_ANY]:
+        cap = cv2.VideoCapture(idx, backend)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, ancho)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, alto)
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                return cap
+            cap.release()
+    return None
+
 def clasificar_dedos(puntos_px, mano_label, es_espejo=True):
     estados = [0, 0, 0, 0, 0]
 
-    # Dedos 1 a 4
     for i in range(1, 5):
         tip_y = puntos_px[PUNTAS_IDS[i]][1]
         pip_y = puntos_px[PIP_IDS[i]][1]
         if tip_y < pip_y:
             estados[i] = 1
 
-    # Pulgar
     p_tip_thumb = puntos_px[4]
     p_ip_thumb = puntos_px[3]
     p_mcp_thumb = puntos_px[2]
@@ -80,7 +104,6 @@ def clasificar_dedos(puntos_px, mano_label, es_espejo=True):
     estados[0] = 1 if pulgar_abierto else 0
     conteo = sum(estados)
 
-    # Identificación de gesto
     dist_pinch = distancia_euclidiana(puntos_px[4], puntos_px[8])
     pinch_activo = dist_pinch < max(24, int(ref_escala * 0.28))
 
@@ -112,35 +135,47 @@ def clasificar_dedos(puntos_px, mano_label, es_espejo=True):
     return estados, conteo, gesto, pinch_activo
 
 class DetectorManoThread:
-    """Hilo secundario de captura para alimentar al visor 3D."""
+    """Gestiona captura de video con selector automático y cambio en caliente."""
     def __init__(self, camera_index=None, mostrar_ventana_cam=True, espejo=True):
-        self.camera_index = camera_index if camera_index is not None else self._autodetectar_camara()
         self.mostrar_ventana_cam = mostrar_ventana_cam
         self.espejo = espejo
         self.running = False
         self.thread = None
         self.lock = threading.Lock()
 
-        # Datos compartidos
+        # Determinar cámara inicial
+        if camera_index is not None:
+            self.camera_index = camera_index
+        else:
+            self.camera_index = self._seleccionar_camara_inicial()
+
+        self.solicitar_cambio_cam = False
+        self.nuevo_indice_cam = self.camera_index
+
+        # Datos compartidos con el visor
         self.mano_detectada = False
         self.etiqueta_mano = "Right"
         self.angulos_actuales = None
         self.estados_dedos = [0, 0, 0, 0, 0]
-        self.gesto_actual = "Ninguno"
+        self.gesto_actual = "Buscando..."
         self.fps = 0.0
+        self.cam_nombre = "Cámara 0"
 
-    def _autodetectar_camara(self):
-        """Prueba si hay cámara 1 (USB externa) disponible; si no, usa la 0."""
-        for idx in [1, 0]:
-            test_cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-            if not test_cap.isOpened():
-                test_cap = cv2.VideoCapture(idx)
-            if test_cap.isOpened():
-                ret, _ = test_cap.read()
-                test_cap.release()
-                if ret:
-                    return idx
-        return 0
+    def _seleccionar_camara_inicial(self):
+        """Si la cámara USB (1) está conectada la prioriza; de lo contrario usa la 0."""
+        print("\n[INFO] Escaneando puertos de cámara disponibles...")
+        cam1_ok = probar_camara(1)
+        cam0_ok = probar_camara(0)
+
+        if cam1_ok:
+            print("[OK] Cámara USB (Puerto 1) detectada y lista.")
+            return 1
+        elif cam0_ok:
+            print("[OK] Cámara Integrada (Puerto 0) detectada y lista.")
+            return 0
+        else:
+            print("[AVISO] No se detectó cámara en puertos 0 o 1. Intentando puerto 0 por defecto.")
+            return 0
 
     def start(self):
         if not self.running:
@@ -154,9 +189,17 @@ class DetectorManoThread:
             self.thread.join(timeout=1.5)
 
     def cambiar_camara(self):
+        """Solicita alternar entre cámara 0 y cámara 1."""
         with self.lock:
-            self.camera_index = 1 if self.camera_index == 0 else 0
-            print(f"[CAMBIO DE CAMARA] Nueva camara asignada: {self.camera_index}")
+            siguiente = 0 if self.camera_index == 1 else 1
+            print(f"\n[CAMBIO] Solicitando cambio a Cámara {siguiente}...")
+            self.nuevo_indice_cam = siguiente
+            self.solicitar_cambio_cam = True
+
+    def alternar_espejo(self):
+        with self.lock:
+            self.espejo = not self.espejo
+            print(f"[ESPEJO] Modo espejo: {'ACTIVADO' if self.espejo else 'DESACTIVADO'}")
 
     def obtener_datos(self):
         with self.lock:
@@ -167,22 +210,28 @@ class DetectorManoThread:
                 "estados": list(self.estados_dedos),
                 "gesto": self.gesto_actual,
                 "fps": self.fps,
-                "cam_idx": self.camera_index
+                "cam_idx": self.camera_index,
+                "cam_nombre": self.cam_nombre
             }
 
     def _bucle_captura(self):
-        indice_actual = self.camera_index
-        cap = cv2.VideoCapture(indice_actual, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(indice_actual)
+        cap = abrir_dispositivo_camara(self.camera_index)
+        if cap is None:
+            # Respaldo inmediato a la otra cámara si falló
+            otro = 0 if self.camera_index == 1 else 1
+            print(f"[AVISO] Cámara {self.camera_index} no respondió. Probando cámara de respaldo {otro}...")
+            cap = abrir_dispositivo_camara(otro)
+            if cap is not None:
+                self.camera_index = otro
 
-        if not cap.isOpened():
-            print(f"[ERROR] No se pudo abrir la camara {indice_actual}")
+        if cap is None:
+            print(f"[ERROR CRÍTICO] No se pudo abrir ninguna cámara (ni 0 ni 1). Verifica los permisos de cámara en Windows.")
             self.running = False
             return
 
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        tipo_cam = "USB Externa" if self.camera_index == 1 else "Integrada Laptop"
+        self.cam_nombre = f"Cam {self.camera_index} ({tipo_cam})"
+        print(f"[CONECTADO] {self.cam_nombre} activa y capturando.")
 
         mp_hands = mp.solutions.hands
         mp_drawing = mp.solutions.drawing_utils
@@ -190,25 +239,32 @@ class DetectorManoThread:
         hands = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
-            min_detection_confidence=0.6,
+            min_detection_confidence=0.55,
             min_tracking_confidence=0.5
         )
 
         prev_time = time.time()
 
         while self.running:
-            # Si el usuario solicitó cambio de cámara
-            if self.camera_index != indice_actual:
-                cap.release()
-                indice_actual = self.camera_index
-                cap = cv2.VideoCapture(indice_actual, cv2.CAP_DSHOW)
-                if not cap.isOpened():
-                    cap = cv2.VideoCapture(indice_actual)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            # 1. Gestionar cambio de cámara en caliente
+            if self.solicitar_cambio_cam:
+                self.solicitar_cambio_cam = False
+                target_idx = self.nuevo_indice_cam
+                print(f"[CAMBIO] Probando conexión con Cámara {target_idx}...")
+                test_nueva = abrir_dispositivo_camara(target_idx)
+                if test_nueva is not None:
+                    cap.release()
+                    cap = test_nueva
+                    self.camera_index = target_idx
+                    tipo = "USB Externa" if target_idx == 1 else "Integrada Laptop"
+                    self.cam_nombre = f"Cam {target_idx} ({tipo})"
+                    print(f"[OK] Cambio exitoso a: {self.cam_nombre}")
+                else:
+                    print(f"[AVISO] No se pudo conectar a Cámara {target_idx}. Se mantiene {self.cam_nombre}.")
 
+            # 2. Lectura de fotograma
             ret, frame = cap.read()
-            if not ret:
+            if not ret or frame is None:
                 time.sleep(0.01)
                 continue
 
@@ -221,6 +277,7 @@ class DetectorManoThread:
             calc_fps = 0.9 * self.fps + 0.1 * (1.0 / dt) if dt > 0 else 30.0
             prev_time = t_now
 
+            # 3. Detección con MediaPipe
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             rgb.flags.writeable = False
             results = hands.process(rgb)
@@ -251,6 +308,7 @@ class DetectorManoThread:
                         connection_drawing_spec=mp_drawing.DrawingSpec(color=(0, 255, 150), thickness=2)
                     )
 
+            # 4. Actualizar estado compartido
             with self.lock:
                 self.mano_detectada = detectada
                 self.angulos_actuales = angulos
@@ -259,19 +317,30 @@ class DetectorManoThread:
                 self.gesto_actual = gesto
                 self.fps = calc_fps
 
+            # 5. Ventana monitor de OpenCV
             if self.mostrar_ventana_cam:
-                cv2.rectangle(frame, (10, 10), (450, 75), (25, 28, 36), -1)
-                cv2.rectangle(frame, (10, 10), (450, 75), (0, 255, 200), 1)
-                color_st = (0, 255, 150) if detectada else (120, 120, 255)
-                cv2.putText(frame, f"ESTADO: {'DETECTADA' if detectada else 'BUSCANDO...'}", (20, 35),
-                            cv2.FONT_HERSHEY_DUPLEX, 0.55, color_st, 1)
-                cv2.putText(frame, f"GESTO: {gesto.upper()} | Cam: {indice_actual}", (20, 60),
+                cv2.rectangle(frame, (10, 10), (480, 80), (22, 25, 33), -1)
+                cv2.rectangle(frame, (10, 10), (480, 80), (0, 255, 200), 1)
+
+                col_st = (0, 255, 150) if detectada else (120, 140, 255)
+                texto_st = f"ESTADO: {'MANO DETECTADA' if detectada else 'BUSCANDO MANO...'}"
+                cv2.putText(frame, texto_st, (20, 35), cv2.FONT_HERSHEY_DUPLEX, 0.55, col_st, 1)
+
+                cv2.putText(frame, f"GESTO: {gesto.upper()} | FPS: {int(calc_fps)}", (20, 56),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1)
+
+                cv2.putText(frame, f"{self.cam_nombre} | [C] Cambiar Cam | [M] Espejo", (20, 74),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 220, 255), 1)
+
                 cv2.imshow("Monitor Camara (MediaPipe)", frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27 or key == ord('q'):
                     self.running = False
                     break
+                elif key == ord('c') or key == ord('C'):
+                    self.cambiar_camara()
+                elif key == ord('m') or key == ord('M'):
+                    self.alternar_espejo()
 
         cap.release()
         hands.close()
