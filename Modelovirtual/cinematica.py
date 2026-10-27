@@ -44,16 +44,17 @@ def angulo_entre_vectores(v1, v2):
 
 def calcular_flexion_3puntos(a, b, c):
     """
-    Calcula flexion en la articulacion B entre los segmentos A->B y B->C.
-    Retorna 0 cuando esta recto, ~90 cuando completamente doblado.
+    Angulo de flexion en la articulacion B entre segmentos A->B y B->C.
+      0deg  = dedo completamente extendido (recto)
+      ~90deg = dedo completamente doblado (puno)
+    Formula: angulo entre los dos vectores consecutivos del hueso.
     """
-    v_in  = vector(a, b)   # vector entrante hacia B
-    v_out = vector(b, c)   # vector saliente desde B
+    v_in  = vector(a, b)   # vector segmento entrante
+    v_out = vector(b, c)   # vector segmento saliente
     ang = angulo_entre_vectores(v_in, v_out)
-    # ang=180 -> extendido -> flexion=0
-    # ang=90  -> doblado   -> flexion=90
-    flexion = 180.0 - ang
-    return float(np.clip(flexion, 0.0, 110.0))
+    # ang=0   -> vectores paralelos -> dedo recto    -> flexion=0  (correcto)
+    # ang=90  -> vectores perpendic -> doblado 90deg -> flexion=90 (correcto)
+    return float(np.clip(ang, 0.0, 95.0))
 
 def orientacion_palma(lm):
     """Calcula la orientacion global de la palma (Pitch, Yaw, Roll)."""

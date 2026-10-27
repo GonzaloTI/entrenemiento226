@@ -130,8 +130,9 @@ def angulo_articulacion(lm, a_idx, b_idx, c_idx):
 
     cos_t = float(np.clip(np.dot(v_in, v_out) / (n_in * n_out), -1.0, 1.0))
     ang_grados = math.degrees(math.acos(cos_t))
-    flexion = 180.0 - ang_grados
-    return float(np.clip(flexion, 0.0, 120.0))
+    # 0deg  -> vectores paralelos -> dedo recto   (correcto)
+    # 90deg -> perpendiculares   -> doblado 90deg (correcto)
+    return float(np.clip(ang_grados, 0.0, 95.0))
 
 
 def medir_muestra(lm):

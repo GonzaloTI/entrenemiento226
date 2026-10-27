@@ -132,53 +132,59 @@ class ManoVirtualBlender:
         except Exception as e:
             print(f"[ERROR] No se pudo cargar el Actor de Blender: {e}")
 
-    def actualizar(self, angulos, factor_suavizado=0.30):
+    def actualizar(self, angulos, factor_suavizado=0.35):
         if not angulos or not self.actor:
             return
 
-        # 1. Rotación de muñeca / palma
+        version_calib = angulos.get("version", "none")
+
+        # 1. Rotacion de muneca / palma
         p_obj = angulos["palma"]
         t_rot = Vec3(p_obj["pitch"] * 0.45, -p_obj["yaw"] * 0.55, p_obj["roll"] * 0.4)
         self.rot_suavizada_palma += (t_rot - self.rot_suavizada_palma) * factor_suavizado
         self.raiz.rotation = self.rot_suavizada_palma
 
-        # 2. Flexión de dedos índice a meñique
+        # 2. Flexion de dedos indice a menique
         dedos_data = angulos["dedos"]
         for dedo in ["indice", "medio", "anular", "menique"]:
             if dedo not in dedos_data or dedo not in self.joints:
                 continue
 
             target_base = dedos_data[dedo]["base"]
-            target_mid = dedos_data[dedo]["medio"]
-            target_tip = dedos_data[dedo]["punta"]
+            target_mid  = dedos_data[dedo]["medio"]
+            target_tip  = dedos_data[dedo]["punta"]
             targets = [target_base, target_mid, target_tip]
 
             for i in range(3):
-                curr = self.angulos_suavizados[dedo][i]
+                curr  = self.angulos_suavizados[dedo][i]
                 nuevo = curr + (targets[i] - curr) * factor_suavizado
                 self.angulos_suavizados[dedo][i] = nuevo
 
-                j = self.joints[dedo][i]
+                j        = self.joints[dedo][i]
                 base_hpr = self.rest_hpr[dedo][i]
-                # Aplicar flexión en el eje P (pitch) con el signo correcto
+
+                # v2.0: cinematica ya entrego grados del modelo (0-82)
+                # v1.0 / estandar: escalar 0.88 para no exceder el rango del modelo
+                escala = 1.0 if version_calib == "2.0" else 0.88
                 j.setHpr(base_hpr[0],
-                         base_hpr[1] + SIGNO_FLEXION * nuevo * 0.88,
+                         base_hpr[1] + SIGNO_FLEXION * nuevo * escala,
                          base_hpr[2])
 
-        # 3. Flexión de pulgar
+        # 3. Flexion de pulgar
         if "pulgar" in dedos_data and "pulgar" in self.joints:
-            p_data = dedos_data["pulgar"]
+            p_data    = dedos_data["pulgar"]
             p_targets = [p_data["base"], p_data["medio"], p_data["punta"]]
+            escala_p  = 1.0 if version_calib == "2.0" else 0.75
             for i in range(3):
-                curr = self.angulos_suavizados["pulgar"][i]
+                curr  = self.angulos_suavizados["pulgar"][i]
                 nuevo = curr + (p_targets[i] - curr) * factor_suavizado
                 self.angulos_suavizados["pulgar"][i] = nuevo
 
                 j = self.joints["pulgar"][i]
                 base_hpr = self.rest_hpr["pulgar"][i]
                 j.setHpr(base_hpr[0],
-                         base_hpr[1] + SIGNO_FLEXION * nuevo * 0.75,
-                         base_hpr[2] + SIGNO_FLEXION * (-nuevo) * 0.40)
+                         base_hpr[1] + SIGNO_FLEXION * nuevo * escala_p,
+                         base_hpr[2] + SIGNO_FLEXION * (-nuevo) * (0.40 * escala_p))
 
 # --- INICIAR MODELO Y DETECTOR ---
 mano_3d = ManoVirtualBlender(RUTA_GLB)
