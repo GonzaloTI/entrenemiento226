@@ -76,6 +76,17 @@ editor_cam.rotation = (10, 0, 0)
 
 RUTA_GLB = os.path.join(os.path.dirname(__file__), "assets", "mano_robotica.glb")
 
+# ============================================================
+# SIGNO_FLEXION: Controla la dirección en que los huesos del
+# modelo se doblan al aplicar el ángulo de flexión.
+#   +1  → dobla en dirección positiva del eje P de Panda3D
+#   -1  → dobla en dirección negativa (invierte el giro)
+# Si los nudillos giran al revés, cambia este valor a -1.
+# ============================================================
+SIGNO_FLEXION = -1  # Cambiar a +1 si los dedos se doblan al revés
+
+DEBUG_HUESOS = False  # Activar con tecla [D] para imprimir HPR de reposo
+
 class ManoVirtualBlender:
     """Gestiona el modelo esquelético realista de Blender en Ursina."""
     def __init__(self, ruta_glb):
@@ -149,7 +160,10 @@ class ManoVirtualBlender:
 
                 j = self.joints[dedo][i]
                 base_hpr = self.rest_hpr[dedo][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.88, base_hpr[2])
+                # Aplicar flexión en el eje P (pitch) con el signo correcto
+                j.setHpr(base_hpr[0],
+                         base_hpr[1] + SIGNO_FLEXION * nuevo * 0.88,
+                         base_hpr[2])
 
         # 3. Flexión de pulgar
         if "pulgar" in dedos_data and "pulgar" in self.joints:
@@ -162,7 +176,9 @@ class ManoVirtualBlender:
 
                 j = self.joints["pulgar"][i]
                 base_hpr = self.rest_hpr["pulgar"][i]
-                j.setHpr(base_hpr[0], base_hpr[1] + nuevo * 0.75, base_hpr[2] - nuevo * 0.40)
+                j.setHpr(base_hpr[0],
+                         base_hpr[1] + SIGNO_FLEXION * nuevo * 0.75,
+                         base_hpr[2] + SIGNO_FLEXION * (-nuevo) * 0.40)
 
 # --- INICIAR MODELO Y DETECTOR ---
 mano_3d = ManoVirtualBlender(RUTA_GLB)
@@ -178,7 +194,7 @@ txt_titulo = Text(
     color=color.rgb(0, 255, 200)
 )
 txt_sub = Text(
-    text="[Mouse Der]: Orbitar | [Rueda]: Zoom | [ESPACIO]: Centrar | [C]: Cambiar Cam | [M]: Espejo | [ESC]: Salir",
+    text="[Mouse Der]: Orbitar | [Rueda]: Zoom | [ESPACIO]: Centrar | [C]: Cambiar Cam | [M]: Espejo | [F]: Invertir Flex | [D]: Debug HPR | [ESC]: Salir",
     position=(-0.85, 0.435),
     scale=0.72,
     color=color.rgb(160, 170, 185)
@@ -241,6 +257,7 @@ def update():
         txt_fps.text = f"FPS Cam: {int(datos['fps'])} | 3D: 60 FPS"
 
 def input(key):
+    global DEBUG_HUESOS, SIGNO_FLEXION
     if key == 'escape' or key == 'q':
         detector.stop()
         application.quit()
@@ -251,6 +268,18 @@ def input(key):
         detector.cambiar_camara()
     elif key == 'm':
         detector.alternar_espejo()
+    elif key == 'd':
+        # Imprimir HPR de reposo de todos los huesos para diagnóstico
+        print("\n[DEBUG] HPR de reposo de articulaciones:")
+        for dedo, joints in mano_3d.joints.items():
+            rest_list = mano_3d.rest_hpr[dedo]
+            for i, (j, hpr) in enumerate(zip(joints, rest_list)):
+                print(f"  {dedo}[{i}] = H:{hpr[0]:.1f} P:{hpr[1]:.1f} R:{hpr[2]:.1f}")
+    elif key == 'f':
+        # Invertir signo de flexión en caliente
+        SIGNO_FLEXION = -SIGNO_FLEXION
+        print(f"[SIGNO] Dirección de flexión invertida: {'+1' if SIGNO_FLEXION > 0 else '-1'}")
+        print(" Presiona [F] de nuevo si los dedos vuelven a ir al revés.")
 
 if __name__ == "__main__":
     print("\n" + "=" * 65)

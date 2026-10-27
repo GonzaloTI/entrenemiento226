@@ -1,0 +1,27 @@
+{
+    "fecha": "2026-10-27 17:07:49",
+    "mano_detectada": "Right",
+    "camara_index": 0,
+    "dedos": {
+        "indice": {
+            "dist_abierto": 0.8882,
+            "dist_cerrado": 0.8375
+        },
+        "medio": {
+            "dist_abierto": 0.9645,
+            "dist_cerrado": 0.9499
+        },
+        "anular": {
+            "dist_abierto": 0.7807,
+            "dist_cerrado": 0.841
+        },
+        "menique": {
+            "dist_abierto": 0.517,
+            "dist_cerrado": 0.6312
+        },
+        "pulgar": {
+            "dist_abierto": 1.2028,
+            "dist_cerrado": 0.8401
+        }
+    }
+}
